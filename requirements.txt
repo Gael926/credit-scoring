@@ -6,3 +6,9 @@ seaborn
 shap
 mlflow
 jupyter
+missingno
+imbalanced-learn
+xgboost
+lightgbm
+optuna
+requests
