@@ -1,11 +1,4 @@
 # Fonctions de nettoyage, encodage, jointures
-
-def clean_data(df):
-    pass
-
-def encode_features(df):
-    pass
-
 import pandas as pd
 import numpy as np
 import os
@@ -16,35 +9,40 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(os.path.dirname(CURRENT_DIR), 'data/raw')
 
 def load_data(file_name):
-    """Charge un CSV depuis le dossier data de manière robuste."""
+    #Charge un CSV depuis le dossier data de manière robuste.
     path = os.path.join(DATA_PATH, file_name)
     if not os.path.exists(path):
         print(f"ERREUR: Fichier introuvable {path}")
         return None
     return pd.read_csv(path)
 
-# ratio financers inspirés du kernel kaggle
+# Ratios Financiers (colonne créées dans les codes kaggle et le code du prof)
 def create_domain_features(df):
-    # 1. Pourcentage de crédit par rapport au revenu
+
+    # Pourcentage de crédit par rapport au revenu
     df['CREDIT_INCOME_PERCENT'] = df['AMT_CREDIT'] / df['AMT_INCOME_TOTAL']
-    
-    # 2. Pourcentage de l'annuité par rapport au revenu (Taux d'endettement)
+    #Pourcentage de l'annuité par rapport au revenu (Taux d'endettement)
     df['ANNUITY_INCOME_PERCENT'] = df['AMT_ANNUITY'] / df['AMT_INCOME_TOTAL']
-    
-    # 3. Durée du crédit (approximatif)
+    # Durée du crédit en mois
     df['CREDIT_TERM'] = df['AMT_ANNUITY'] / df['AMT_CREDIT']
-    
-    # 4. Pourcentage des jours travaillés par rapport à l'âge (Stabilité pro)
-    # Attention: DAYS_EMPLOYED est souvent négatif, on prend l'absolu ou le ratio direct
+    # Pourcentage de jours travaillés par rapport à l'âge
     df['DAYS_EMPLOYED_PERCENT'] = df['DAYS_EMPLOYED'] / df['DAYS_BIRTH']
-    
+    # Ratio crédit / prix du bien
+    df['CREDIT_TO_GOODS_RATIO'] = df['AMT_CREDIT'] / df['AMT_GOODS_PRICE']
+    # Moyenne des EXT_SOURCE
+    df['EXT_SOURCE_MEAN'] = df[['EXT_SOURCE_1', 'EXT_SOURCE_2', 'EXT_SOURCE_3']].mean(axis=1)
+    # Produit des EXT_SOURCE
+    df['EXT_SOURCE_PROD'] = df['EXT_SOURCE_1'] * df['EXT_SOURCE_2'] * df['EXT_SOURCE_3']
+    # Interaction EXT_SOURCE 1 et Age
+    df['EXT_SOURCE_1_x_DAYS_BIRTH'] = df['EXT_SOURCE_1'] * df['DAYS_BIRTH']
     return df
 
+# Fonctions pour les jointures externes
 def get_bureau_features():
     bureau = load_data('bureau.csv')
     if bureau is None: return None
     
-    # On filtre : on veut savoir ce qui est ACTIF
+    # On veut savoir la DETTE ACTUELLE TOTALE 
     bureau['CREDIT_ACTIVE_BINARY'] = (bureau['CREDIT_ACTIVE'] == 'Active').astype(int)
     
     agg = {
@@ -52,7 +50,8 @@ def get_bureau_features():
         'AMT_CREDIT_SUM': ['sum', 'max'],      # Montant total emprunté ailleurs
         'AMT_CREDIT_SUM_DEBT': ['sum', 'mean'],# DETTE TOTALE ACTUELLE (Crucial)
         'AMT_CREDIT_SUM_OVERDUE': ['mean'],    # Impayés moyens
-        'CREDIT_ACTIVE_BINARY': ['mean']       # % de crédits actifs
+        'CREDIT_ACTIVE_BINARY': ['mean'],      # % de crédits actifs
+        'CREDIT_DAY_OVERDUE': ['max']          # Max retard ailleurs
     }
     
     bureau_agg = bureau.groupby('SK_ID_CURR').agg(agg)
@@ -60,14 +59,15 @@ def get_bureau_features():
     del bureau; gc.collect()
     return bureau_agg
 
+
 def get_previous_features():
     prev = load_data('previous_application.csv')
     if prev is None: return None
-    
+
     prev['APP_REFUSED'] = (prev['NAME_CONTRACT_STATUS'] == 'Refused').astype(int)
     
     agg = {
-        'AMT_ANNUITY': ['mean'],
+        'AMT_ANNUITY': ['mean'],   # Combien il payait avant ?
         'APP_REFUSED': ['mean'],   # Taux de refus passé chez nous
         'CNT_PAYMENT': ['mean']    # Durée moyenne demandée
     }
@@ -76,6 +76,7 @@ def get_previous_features():
     prev_agg.columns = pd.Index(['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg.columns.tolist()])
     del prev; gc.collect()
     return prev_agg
+
 
 def get_pos_cash_features():
     pos = load_data('POS_CASH_balance.csv')
