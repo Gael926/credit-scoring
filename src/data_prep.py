@@ -141,17 +141,16 @@ def get_credit_card_features():
     del cc; gc.collect()
     return cc_agg
 
-# Fonction pour les jointures dans la v1
+# Fonction pour les jointures
 def load_and_feature_engineering():
-    # 1. Chargement Train
+    # Chargement Train
     df = load_data('application_train.csv')
     print(f"Base Train chargée: {df.shape}")
     
-    # 2. Ajout des Ratios Métiers
+    # Ajout des Ratios Métiers
     df = create_domain_features(df)
     
-    # 3. Jointures Externes (Mode Light)
-    # Liste des fonctions à appeler
+    # Jointures Externes
     external_funcs = [
         get_bureau_features,
         get_previous_features,
@@ -170,17 +169,11 @@ def load_and_feature_engineering():
             
     # Nettoyage des noms de colonnes (Espaces etc.)
     df.columns = ["".join (c if c.isalnum() else "_" for c in str(x)) for x in df.columns]
-    
-    print("--- Terminé ---")
     return df
 
 
-# Fonction du prof
+# Fonction du prof pour réduire la mémoire en reduisant la precision des types numériques
 def reduce_mem_usage(df):
-    """
-    Itère sur toutes les colonnes d'un DataFrame et réduit la précision
-    des types numériques (int et float) pour diminuer la consommation de mémoire.
-    """
     start_mem = df.memory_usage().sum() / 1024**2
     print(f"Usage mémoire initial du DataFrame: {start_mem:.2f} MB")
 

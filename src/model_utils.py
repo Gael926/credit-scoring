@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.dummy import DummyClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
@@ -21,24 +20,35 @@ try:
 except ImportError:
     from src.metrics import calculate_auc, calculate_recall, calculate_f1, business_cost_metric, calculate_accuracy
 
-RANDOM_SEED = 42
-COST_WEIGHTS = {0: 1, 1: 10}
+# classe pour l'ensemble des modèles pour la cross validation
+class Ensemble:
+    def __init__(self, models):
+        self.models = models
+    
+    def predict_proba(self, X):
+        preds = [m.predict_proba(X)[:, 1] for m in self.models]
+        mean_preds = np.mean(preds, axis=0)
+        return np.vstack([1-mean_preds, mean_preds]).T
+        
+    def predict(self, X):
+        return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
 
+RANDOM_SEED = 42
+# fonction de métrique custom pour LightGBM
 def lgb_custom_metric(y_true, y_pred):
-    """Métrique custom pour LightGBM: Cost (Lower is better)."""
     # y_pred sont les probabilités de la classe 1
     cost = business_cost_metric(y_true, y_pred, threshold=0.5)
     return "business_cost", cost, False
 
+# fonction de recherche du meilleur seuil
 def find_best_threshold(y_true, y_prob):
-    """Trouve le seuil qui minimise le coût métier sur un set donné."""
     thresholds = np.arange(0.01, 1.0, 0.01)
     costs = [business_cost_metric(y_true, y_prob, t) for t in thresholds]
     best_idx = np.argmin(costs)
     return thresholds[best_idx], costs[best_idx]
 
+# fonction de split 70/15/15 avec stratification
 def get_train_val_test_split(X, y):
-    """Split 70/15/15 standard."""
     X_train, X_temp, y_train, y_temp = train_test_split(
         X, y, test_size=0.3, random_state=RANDOM_SEED, stratify=y
     )
@@ -47,8 +57,8 @@ def get_train_val_test_split(X, y):
     )
     return X_train, y_train, X_val, y_val, X_test, y_test
 
+#Calcule AUC, Recall, F1, Accuracy et Coût Métier
 def evaluate_model(model, X, y, threshold=0.5):
-    """Calcule AUC, Recall, F1, Accuracy et Coût Métier."""
     if hasattr(model, "predict_proba"):
         y_prob = model.predict_proba(X)[:, 1]
     else:
@@ -64,16 +74,18 @@ def evaluate_model(model, X, y, threshold=0.5):
         "business_cost": business_cost_metric(y, y_prob, threshold)
     }
 
+# fonction d'entraînement et logging MLflow
 def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_test, params=None, dataset_name="v2"):
-    """Entraînement avec recherche de seuil et logging MLflow."""
+    # nom du run
     run_name = f"{model_name}_{dataset_name}"
     
+    # debut du log mlflow
     with mlflow.start_run(run_name=run_name):
         print(f"Entraînement {run_name}...")
         mlflow.set_tag("dataset", dataset_name)
         if params: mlflow.log_params(params)
         
-        # Fit
+        # entrainement
         if "LightGBM" in model_name:
             model.fit(
                 X_train, y_train,
@@ -90,7 +102,7 @@ def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_t
         else:
             model.fit(X_train, y_train)
             
-        # --- Recherche du meilleur seuil sur le Validation Set ---
+        # recherche du meilleur seuil sur le Validation Set
         if hasattr(model, "predict_proba"):
             val_probs = model.predict_proba(X_val)[:, 1]
             best_thresh, min_cost = find_best_threshold(y_val, val_probs)
@@ -99,12 +111,16 @@ def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_t
             mlflow.log_metric("val_best_cost", min_cost)
         else:
             best_thresh = 0.5
+            min_cost = None
             
-        # --- Evaluation Finale sur le Test Set avec ce seuil ---
+        # evaluation finale sur le Test Set avec ce seuil
         metrics = evaluate_model(model, X_test, y_test, threshold=best_thresh)
+        if min_cost is not None:
+             metrics["val_best_cost"] = min_cost 
+             
         mlflow.log_metrics(metrics)
         
-        # Save
+        # enregistement des modèles
         if "LightGBM" in model_name: mlflow.lightgbm.log_model(model, "model")
         elif "XGBoost" in model_name: mlflow.xgboost.log_model(model, "model")
         else: mlflow.sklearn.log_model(model, "model")
@@ -112,103 +128,123 @@ def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_t
         print(f"Metrics (Test): {metrics}")
         return model, metrics
 
-# --- Fonctions d'entrainement simples ---
-
+# fonctions d'entrainement simples
 def train_dummy(X_train, y_train, X_val, y_val, X_test, y_test, dataset_name):
     model = DummyClassifier(strategy='most_frequent')
     return train_and_log(model, "Dummy", X_train, y_train, X_val, y_val, X_test, y_test, {}, dataset_name)
 
-def train_logistic_regression(X_train, y_train, X_val, y_val, X_test, y_test, dataset_name):
-    pipeline = Pipeline([
-        ('imputer', SimpleImputer(strategy='median')),
-        ('model', LogisticRegression(C=1.0, solver='liblinear', class_weight=COST_WEIGHTS, random_state=RANDOM_SEED))
-    ])
-    return train_and_log(pipeline, "LogisticRegression", X_train, y_train, X_val, y_val, X_test, y_test, {}, dataset_name)
-
 def train_random_forest(X_train, y_train, X_val, y_val, X_test, y_test, dataset_name):
     pipeline = Pipeline([
          ('imputer', SimpleImputer(strategy='median')),
-         ('model', RandomForestClassifier(n_estimators=100, max_depth=10, class_weight=COST_WEIGHTS, random_state=RANDOM_SEED, n_jobs=-1))
+         ('model', RandomForestClassifier(
+            n_estimators=100, 
+            max_depth=10, 
+            class_weight="balanced", 
+            random_state=RANDOM_SEED, 
+            n_jobs=-1
+            )
+        )
     ])
     return train_and_log(pipeline, "RandomForest", X_train, y_train, X_val, y_val, X_test, y_test, {}, dataset_name)
 
-def train_xgboost(X_train, y_train, X_val, y_val, X_test, y_test, dataset_name):
+def train_xgboost(X_train, y_train, X_val, y_val, X_test, y_test, dataset_name):  
     scale_weight = 10 
     model = XGBClassifier(
-        n_estimators=1000, learning_rate=0.05, max_depth=6, 
-        scale_pos_weight=scale_weight, random_state=RANDOM_SEED, n_jobs=-1,
-        eval_metric="auc", early_stopping_rounds=50
+        n_estimators=1000, 
+        learning_rate=0.05, 
+        max_depth=6, 
+        scale_pos_weight=scale_weight, 
+        random_state=RANDOM_SEED, 
+        n_jobs=-1,
+        eval_metric="auc", 
+        early_stopping_rounds=50
     )
     return train_and_log(model, "XGBoost", X_train, y_train, X_val, y_val, X_test, y_test, {}, dataset_name)
 
 def train_lightgbm(X_train, y_train, X_val, y_val, X_test, y_test, dataset_name, params=None):
     if params is None:
         params = {
-            "n_estimators": 1000, "learning_rate": 0.05, "num_leaves": 31,
-            "class_weight": COST_WEIGHTS, "random_state": RANDOM_SEED, "n_jobs": -1
+            "n_estimators": 1000, 
+            "learning_rate": 0.05, 
+            "num_leaves": 31,
+            "class_weight": "balanced", 
+            "random_state": RANDOM_SEED, 
+            "n_jobs": -1
         }
-    if "class_weight" not in params:
-        params["class_weight"] = COST_WEIGHTS
         
     model = lgb.LGBMClassifier(**params)
     return train_and_log(model, "LightGBM", X_train, y_train, X_val, y_val, X_test, y_test, params, dataset_name)
 
-def train_lightgbm_cv(X, y, params=None, n_splits=5):
-    """
-    Cross-validation simple pour LightGBM.
-    """
-    print(f"Début Cross-Validation LightGBM ({n_splits} folds)...")
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_SEED)
+
+# fonction d'entrainement avec cross-validation
+def train_model_cv(X_train, y_train, X_val, y_val, X_test, y_test, dataset_name, params=None):
     
-    aucs = []
-    costs = []
+    # Stratified K-Fold sur l'ensemble d'entraînement
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_SEED)
     
+    # Paramètres par défaut si non fournis
     if params is None:
         params = {
-            "n_estimators": 1000, "learning_rate": 0.05, "class_weight": COST_WEIGHTS,
-            "random_state": RANDOM_SEED, "n_jobs": -1, "verbosity": -1
+            "n_estimators": 1000, "learning_rate": 0.05, 
+            "class_weight": "balanced", "random_state": RANDOM_SEED, 
+            "n_jobs": -1, "verbosity": -1
         }
-    if "class_weight" not in params:
-        params["class_weight"] = COST_WEIGHTS
     
-    params_cv = params.copy()
+    # Initialisation de la liste des modèles
+    models = []
     
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
-        X_tr, X_va = X.iloc[train_idx], X.iloc[val_idx]
-        y_tr, y_va = y.iloc[train_idx], y.iloc[val_idx]
+    # Run MLflow 
+    with mlflow.start_run(run_name=f"LGBM_Ensemble_{dataset_name}"):
+        mlflow.log_params(params)
         
-        model = lgb.LGBMClassifier(**params_cv)
-        model.fit(
-            X_tr, y_tr, 
-            eval_set=[(X_va, y_va)], 
-            eval_metric=lgb_custom_metric,
-            callbacks=[lgb.early_stopping(50, verbose=False)]
-        )
-        
-        preds = model.predict_proba(X_va)[:, 1]
-        
-        # Trouver le meilleur seuil pour ce fold
-        best_t, min_c = find_best_threshold(y_va, preds)
-        auc = calculate_auc(y_va, preds)
-        
-        aucs.append(auc)
-        costs.append(min_c)
-        print(f"Fold {fold+1}: BestThresh={best_t:.2f} -> Cost={min_c:.1f}, AUC={auc:.3f}")
-        
-    print(f"Moyenne CV (Best Thresholds): Cost={np.mean(costs):.1f}, AUC={np.mean(aucs):.3f}")
-    return np.mean(aucs), np.mean(costs)
+        # ENTRAÎNEMENT DES FOLDS
+        for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
+            X_tr, X_va_in = X_train.iloc[train_idx], X_train.iloc[val_idx]
+            y_tr, y_va_in = y_train.iloc[train_idx], y_train.iloc[val_idx]
+            
+            # Utilisation des paramètres optimaux
+            model = lgb.LGBMClassifier(**params)
+            model.fit(
+                X_tr, y_tr, 
+                eval_set=[(X_va_in, y_va_in)],
+                eval_metric=lgb_custom_metric,
+                callbacks=[lgb.early_stopping(50, verbose=False)]
+            )
+            
+            # Sauvegarde du modèle de Fold
+            models.append(model)
+            mlflow.lightgbm.log_model(model, name="modele_fold")
+            print(f"Fold {fold+1} terminé (best_iteration={model.best_iteration_}).")
+            
 
+
+        # CRÉATION ET ÉVALUATION DE L'ENSEMBLE
+        ensemble = Ensemble(models)
+        
+        # Calibration du seuil sur X_val (externe)
+        print("\nCalibration seuil Ensemble sur X_val...")
+        val_probs = ensemble.predict_proba(X_val)[:, 1]
+        best_thresh, min_cost_val = find_best_threshold(y_val, val_probs)
+        
+        mlflow.log_param("best_threshold", best_thresh)
+        mlflow.log_metric("val_best_cost_ensemble", min_cost_val)
+        
+        # Évaluation finale sur le Test Set avec le meilleur seuil trouvé sur Val
+        metrics = evaluate_model(ensemble, X_test, y_test, threshold=best_thresh)
+        mlflow.log_metrics(metrics)
+        print("Metrics Test (Ensemble):", metrics)
+
+        mlflow.lightgbm.log_model(ensemble, name="modele_ensemble")
+        
+        return ensemble, metrics
+
+# fonction d'optimisation avec Optuna
 def optimize_lightgbm(X_train, y_train, X_val, y_val, n_trials=30):
-    """
-    Optimisation Optuna LightGBM (Minimisation Coût).
-    """
-    print("Optimisation LightGBM (Optuna) - Minimisation Coût Métier...")
-    
     def objective(trial):
         param = {
             "objective": "binary", "metric": "custom", "verbosity": -1,
             "boosting_type": "gbdt", "random_state": RANDOM_SEED, "n_jobs": -1,
-            "class_weight": COST_WEIGHTS,
+            "class_weight": "balanced",
             "n_estimators": 1000,
             
             "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3),
@@ -220,6 +256,7 @@ def optimize_lightgbm(X_train, y_train, X_val, y_val, n_trials=30):
             "reg_lambda": trial.suggest_float("reg_lambda", 0.0, 50.0),
         }
         
+        # apprentissage
         model = lgb.LGBMClassifier(**param)
         model.fit(
             X_train, y_train,
@@ -227,12 +264,8 @@ def optimize_lightgbm(X_train, y_train, X_val, y_val, n_trials=30):
             eval_metric=lgb_custom_metric,
             callbacks=[lgb.early_stopping(50, verbose=False)]
         )
-        
         preds = model.predict_proba(X_val)[:, 1]
-        
-        # Chercher le seuil qui minimise le coût
         _, min_c = find_best_threshold(y_val, preds)
-        
         return min_c
 
     study = optuna.create_study(direction="minimize")
