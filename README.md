@@ -6,13 +6,13 @@ Ce projet implémente un pipeline complet de Credit Scoring, de la préparation 
 
 ```mermaid
 flowchart TD
-    A[📊 Données CSV] --> B[🔧 Feature Engineering]
-    B --> C[🎯 Entraînement LightGBM]
-    C --> D[⚙️ Optimisation Optuna]
-    D --> E[📦 MLflow Tracking]
-    E --> F[🚀 API MLflow]
-    F --> G[🖥️ Dashboard Streamlit]
-    C --> H[📈 SHAP Explainability]
+    A[Données CSV] --> B[Feature Engineering]
+    B --> C[Entraînement LightGBM]
+    C --> D[Optimisation Optuna]
+    D --> E[MLflow Tracking]
+    E --> F[API MLflow]
+    F --> G[Dashboard Streamlit]
+    C --> H[SHAP Explainability]
 ```
 
 [![CI Pipeline](https://github.com/Gael926/credit-scoring/actions/workflows/ci.yml/badge.svg)](https://github.com/Gael926/credit-scoring/actions/workflows/ci.yml)

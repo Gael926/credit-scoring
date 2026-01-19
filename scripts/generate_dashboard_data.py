@@ -32,12 +32,19 @@ def main():
     
     # Nettoyage des noms de colonnes pour LightGBM
     X.columns = ["".join(c if c.isalnum() else "_" for c in str(col)) for col in X.columns]
+    
+    # Suppression des colonnes catégorielles (doit correspondre au modèle)
+    cat_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
+    if cat_cols:
+        print(f"Suppression de {len(cat_cols)} colonnes catégorielles")
+        X = X.drop(columns=cat_cols)
+    
     feature_names = X.columns.tolist()
     
     # Split pour récupérer le Test Set
     X_train, y_train, X_val, y_val, X_test, y_test = get_train_val_test_split(X, y)
     
-    # Calcul des médianes sur le Train Set (pas de fuite)
+    # Calcul des médianes sur le Train Set (toutes colonnes sont maintenant numériques)
     print("Calcul des médianes...")
     medians = X_train.median().to_dict()
     

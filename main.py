@@ -1,4 +1,4 @@
-# Credit Scoring Pipeline - Exécution complète du workflow
+# Credit Scoring Pipeline : Exécution complète du workflow
 
 import argparse
 import os
@@ -24,9 +24,9 @@ from explainability import compute_shap, plot_shap_global
 from config import RANDOM_SEED
 
 
-# Étape 1: Chargement et Feature Engineering
+# Chargement et Feature Engineering
 def step_1_data_preparation() -> tuple:
-    print("\nÉTAPE 1: PRÉPARATION DES DONNÉES")
+    print("\nPRÉPARATION DES DONNÉES")
     
     # Chargement et feature engineering
     df = load_and_feature_engineering()
@@ -39,15 +39,21 @@ def step_1_data_preparation() -> tuple:
     # Nettoyage des noms de colonnes pour LightGBM
     X.columns = ["".join(c if c.isalnum() else "_" for c in str(col)) for col in X.columns]
     
+    # Suppression des colonnes catégorielles (texte)
+    cat_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
+    if cat_cols:
+        print(f"Suppression de {len(cat_cols)} colonnes catégorielles: {cat_cols[:5]}...")
+        X = X.drop(columns=cat_cols)
+    
     print(f"Dataset final: {X.shape[0]} lignes, {X.shape[1]} colonnes")
     print(f"Distribution TARGET: {y.value_counts().to_dict()}")
     
     return X, y
 
 
-# Étape 2: Entraînement et Optimisation
+# Entraînement et Optimisation
 def step_2_training(X: pd.DataFrame, y: pd.Series, n_trials: int = 10) -> tuple:
-    print("\nÉTAPE 2: ENTRAÎNEMENT ET OPTIMISATION")
+    print("\nENTRAÎNEMENT ET OPTIMISATION")
     
     # Split Train/Val/Test
     X_train, y_train, X_val, y_val, X_test, y_test = get_train_val_test_split(X, y)
@@ -105,15 +111,20 @@ def step_2_training(X: pd.DataFrame, y: pd.Series, n_trials: int = 10) -> tuple:
     # Sauvegarde du modèle
     os.makedirs("models", exist_ok=True)
     joblib.dump(final_model, "models/best_model.pkl")
+    
+    # Supprimer le dossier existant si présent
+    import shutil
+    if os.path.exists("models/final_model"):
+        shutil.rmtree("models/final_model")
     mlflow.sklearn.save_model(final_model, "models/final_model")
     print("Modèle sauvegardé dans models/best_model.pkl")
     
     return final_model, X_test, y_test, final_metrics
 
 
-# Étape 3: Explicabilité SHAP
+# Explicabilité SHAP
 def step_3_explainability(model, X_test: pd.DataFrame, n_samples: int = 1000):
-    print("\nÉTAPE 3: EXPLICABILITÉ SHAP")
+    print("\nEXPLICABILITÉ SHAP")
     
     # Échantillon pour SHAP (performance)
     X_sample = X_test.sample(n=min(n_samples, len(X_test)), random_state=RANDOM_SEED)
@@ -138,10 +149,10 @@ def main():
     
     print("\nCREDIT SCORING PIPELINE")
     
-    # Étape 1: Préparation des données
+    # Préparation des données
     X, y = step_1_data_preparation()
     
-    # Étape 2: Entraînement (ou chargement)
+    # Entraînement (ou chargement)
     if args.skip_training:
         print("\nChargement du modèle existant")
         model = joblib.load("models/best_model.pkl")
@@ -150,7 +161,7 @@ def main():
     else:
         model, X_test, y_test, final_metrics = step_2_training(X, y, n_trials=args.n_trials)
     
-    # Étape 3: Explicabilité
+    # Explicabilité
     if not args.skip_shap:
         step_3_explainability(model, X_test)
     
