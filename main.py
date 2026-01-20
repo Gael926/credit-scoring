@@ -25,12 +25,27 @@ from config import RANDOM_SEED
 
 
 # Chargement et Feature Engineering
-def step_1_data_preparation() -> tuple:
+PROCESSED_DATA_PATH = os.path.join("data", "processed", "dataset_featured.parquet")
+
+
+def step_1_data_preparation(force_prep: bool = False) -> tuple:
     print("\nPRÉPARATION DES DONNÉES")
     
-    # Chargement et feature engineering
-    df = load_and_feature_engineering()
-    df = reduce_mem_usage(df)
+    # Vérifier si le dataset processed existe déjà
+    if os.path.exists(PROCESSED_DATA_PATH) and not force_prep:
+        print(f"Chargement du dataset préparé: {PROCESSED_DATA_PATH}")
+        df = pd.read_parquet(PROCESSED_DATA_PATH)
+        print(f"Dataset chargé: {df.shape[0]} lignes, {df.shape[1]} colonnes")
+    else:
+        # Feature engineering complet
+        print("Exécution du feature engineering...")
+        df = load_and_feature_engineering()
+        df = reduce_mem_usage(df)
+        
+        # Sauvegarde du dataset processed
+        os.makedirs(os.path.dirname(PROCESSED_DATA_PATH), exist_ok=True)
+        df.to_parquet(PROCESSED_DATA_PATH, index=False)
+        print(f"Dataset sauvegardé: {PROCESSED_DATA_PATH}")
     
     # Séparation X / y
     X = df.drop(columns=['TARGET', 'SK_ID_CURR'], errors='ignore')
@@ -49,6 +64,7 @@ def step_1_data_preparation() -> tuple:
     print(f"Distribution TARGET: {y.value_counts().to_dict()}")
     
     return X, y
+
 
 
 # Entraînement et Optimisation
@@ -145,12 +161,14 @@ def main():
     parser.add_argument("--skip-training", action="store_true", help="Charger le modèle existant")
     parser.add_argument("--n-trials", type=int, default=10, help="Nombre de trials Optuna")
     parser.add_argument("--skip-shap", action="store_true", help="Passer l'étape SHAP")
+    parser.add_argument("--force-prep", action="store_true", help="Forcer le feature engineering (ignorer le cache)")
     args = parser.parse_args()
     
     print("\nCREDIT SCORING PIPELINE")
     
     # Préparation des données
-    X, y = step_1_data_preparation()
+    X, y = step_1_data_preparation(force_prep=args.force_prep)
+
     
     # Entraînement (ou chargement)
     if args.skip_training:

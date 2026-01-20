@@ -4,6 +4,8 @@ Pipeline complet de machine learning pour la prédiction du risque de défaut de
 
 L'objectif principal n'était pas de maximiser l'AUC comme dans les compétitions Kaggle classiques, mais d'**optimiser directement le Coût Métier**. Cette approche reflète la réalité économique : un défaut non détecté (Faux Négatif) coûte bien plus cher qu'un refus abusif (Faux Positif).
 
+![Dashboard Preview](reports/figures/global_dashboard_screenshot.png)
+
 ## Coût Métier : L'Indicateur Clé
 
 La fonction objectif a été paramétrée pour refléter l'asymétrie des risques :
@@ -14,6 +16,7 @@ La fonction objectif a été paramétrée pour refléter l'asymétrie des risque
 | **Faux Positif** (refus abusif) | **1** | Opportunité commerciale perdue |
 
 Cette pondération 10:1 pousse le modèle vers un **recall élevé** (détection maximale des défauts) tout en contrôlant les refus abusifs.
+
 
 ## Contexte et Données
 
@@ -100,6 +103,8 @@ Le dashboard Streamlit permet deux usages :
 ### Audit Client
 Sélection d'un client existant pour vérifier la cohérence du modèle avec l'historique réel.
 
+![Audit Client](reports/figures/audit_dashboard_screenshot.png)
+
 ### Simulateur de Crédit
 Simulation d'une nouvelle demande avec des paramètres ajustables :
 - Revenu annuel, montant du crédit, prix du bien
@@ -107,6 +112,8 @@ Simulation d'une nouvelle demande avec des paramètres ajustables :
 - Durée du prêt
 
 Le modèle retourne une probabilité de défaut et un niveau de risque.
+
+![Simulateur](reports/figures/simulation_dashboard_screenshot.png)
 
 ## Structure du Projet
 
@@ -150,9 +157,15 @@ pip install -r requirements.txt
 # Exécution complète (entraînement + SHAP)
 python main.py --n-trials 50
 
-# Avec modèle existant
+# Avec modèle existant (utilise le dataset en cache)
 python main.py --skip-training
+
+# Forcer le re-traitement des données (ignorer le cache)
+python main.py --force-prep --n-trials 50
 ```
+
+Le dataset feature-engineered est automatiquement sauvegardé dans `data/processed/dataset_featured.parquet` après le premier run, accélérant les exécutions suivantes.
+
 
 ### Option 2 : Docker (Recommandé)
 
