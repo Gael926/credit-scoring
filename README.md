@@ -4,6 +4,8 @@ Pipeline complet de machine learning pour la prédiction du risque de défaut de
 
 L'objectif principal n'était pas de maximiser l'AUC comme dans les compétitions Kaggle classiques, mais d'**optimiser directement le Coût Métier**. Cette approche reflète la réalité économique : un défaut non détecté (Faux Négatif) coûte bien plus cher qu'un refus abusif (Faux Positif).
 
+**[👉 Tester l'application](https://credit-scoring-analysis-pipeline.streamlit.app/)**
+
 ![Dashboard Preview](reports/figures/global_dashboard_screenshot.png)
 
 ## Coût Métier : L'Indicateur Clé
